@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Game Xếp Khối Cổ Điển</title>
+    <link rel="stylesheet" href="style.css" />
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        background-color: #2c3e50; /* Nền tối */
+        font-family: Arial, sans-serif;
+        color: #ecf0f1;
+      }
+
+      .game-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 20px;
+      }
+
+      h1 {
+        color: #e74c3c;
+        margin-bottom: 10px;
+      }
+
+      #gameCanvas {
+        background-color: #000;
+        border: 5px solid #34495e;
+        box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
+      }
+
+      .game-info {
+        text-align: center;
+        font-size: 1.1em;
+      }
+
+      .game-info ul {
+        list-style-type: none;
+        padding: 0;
+        text-align: left;
+        margin-top: 10px;
+      }
+
+      .game-info li {
+        margin-bottom: 5px;
+      }
+
+      #score {
+        font-weight: bold;
+        color: #f1c40f;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="game-container">
+      <h1>Xếp Khối Cổ Điển</h1>
+      <canvas id="gameCanvas" width="300" height="600"></canvas>
+      <div class="game-info">
+        <p>Điểm: <span id="score">0</span></p>
+        <p>Hướng dẫn:</p>
+        <ul>
+          <li>Mũi tên Trái/Phải: Di chuyển</li>
+          <li>Mũi tên Lên: Xoay</li>
+          <li>Mũi tên Xuống: Rơi nhanh</li>
+        </ul>
+      </div>
+    </div>
+    <script>
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+      const scoreDisplay = document.getElementById("score");
+
+      const TILE_SIZE = 30; // Kích thước mỗi ô vuông
+      const BOARD_WIDTH = canvas.width / TILE_SIZE; // Số cột (300 / 30 = 10)
+      const BOARD_HEIGHT = canvas.height / TILE_SIZE; // Số hàng (600 / 30 = 20)
+
+      let board = []; // Mảng 2D biểu diễn bảng chơi
+      let currentPiece; // Khối đang rơi
+      let nextPiece; // Khối tiếp theo (cho game thực tế, nhưng ở đây ta sẽ chỉ tạo ngẫu nhiên)
+      let score = 0;
+      let gameOver = false;
+      let gameSpeed = 500; // Tốc độ rơi (ms), giảm để tăng tốc
+
+      // --- Định nghĩa các hình khối (Tetrominoes) ---
+      const TETROMINOES = {
+        I: {
+          shape: [
+            [0, 0, 0, 0],
+            [1, 1, 1, 1],
+            [0, 0, 0, 0],
+            [0, 0, 0, 0],
+          ],
+          color: "cyan",
+        },
+        J: {
+          shape: [
+            [1, 0, 0],
+            [1, 1, 1],
+            [0, 0, 0],
+          ],
+          color: "blue",
+        },
+        L: {
+          shape: [
+            [0, 0, 1],
+            [1, 1, 1],
+            [0, 0, 0],
+          ],
+          color: "orange",
+        },
+        O: {
+          shape: [
+            [1, 1],
+            [1, 1],
+          ],
+          color: "yellow",
+        },
+        S: {
+          shape: [
+            [0, 1, 1],
+            [1, 1, 0],
+            [0, 0, 0],
+          ],
+          color: "green",
+        },
+        T: {
+          shape: [
+            [0, 1, 0],
+            [1, 1, 1],
+            [0, 0, 0],
+          ],
+          color: "purple",
+        },
+        Z: {
+          shape: [
+            [1, 1, 0],
+            [0, 1, 1],
+            [0, 0, 0],
+          ],
+          color: "red",
+        },
+      };
+
+      // Hàm khởi tạo bảng chơi rỗng
+      function initializeBoard() {
+        for (let r = 0; r < BOARD_HEIGHT; r++) {
+          board[r] = [];
+          for (let c = 0; c < BOARD_WIDTH; c++) {
+            board[r][c] = 0; // 0 nghĩa là ô trống
+          }
+        }
+      }
+
+      // Hàm tạo khối mới ngẫu nhiên
+      function createNewPiece() {
+        const pieces = Object.keys(TETROMINOES);
+        const randomPieceKey =
+          pieces[Math.floor(Math.random() * pieces.length)];
+        const pieceData = TETROMINOES[randomPieceKey];
+
+        currentPiece = {
+          shape: pieceData.shape,
+          color: pieceData.color,
+          x:
+            Math.floor(BOARD_WIDTH / 2) -
+            Math.floor(pieceData.shape[0].length / 2), // Vị trí X giữa bảng
+          y: 0, // Bắt đầu từ trên cùng
+        };
+
+        // Kiểm tra nếu khối mới vừa tạo đã va chạm ngay lập tức (game over)
+        if (!isValidMove(currentPiece.x, currentPiece.y, currentPiece.shape)) {
+          gameOver = true;
+          alert(`Game Over! Điểm của bạn: ${score}`);
+        }
+      }
+
+      // Hàm kiểm tra va chạm
+      // `newX`, `newY`: vị trí muốn di chuyển đến
+      // `newShape`: hình dạng sau khi xoay (nếu có)
+      function isValidMove(newX, newY, newShape) {
+        for (let r = 0; r < newShape.length; r++) {
+          for (let c = 0; c < newShape[r].length; c++) {
+            if (newShape[r][c] === 1) {
+              // Nếu là một phần của khối
+              const boardX = newX + c;
+              const boardY = newY + r;
+
+              // Kiểm tra va chạm với biên bảng
+              if (
+                boardX < 0 ||
+                boardX >= BOARD_WIDTH ||
+                boardY >= BOARD_HEIGHT
+              ) {
+                return false;
+              }
+              // Kiểm tra va chạm với các khối đã xếp
+              if (boardY >= 0 && board[boardY][boardX] !== 0) {
+                // boardY >= 0 để tránh lỗi khi y âm lúc khởi tạo
+                return false;
+              }
+            }
+          }
+        }
+        return true;
+      }
+
+      // Hàm hợp nhất khối vào bảng khi nó chạm đáy/khối khác
+      function mergePiece() {
+        for (let r = 0; r < currentPiece.shape.length; r++) {
+          for (let c = 0; c < currentPiece.shape[r].length; c++) {
+            if (currentPiece.shape[r][c] === 1) {
+              const boardX = currentPiece.x + c;
+              const boardY = currentPiece.y + r;
+              if (boardY >= 0) {
+                // Đảm bảo không ghi vào hàng âm (trên đỉnh bảng)
+                board[boardY][boardX] = currentPiece.color; // Lưu màu vào bảng
+              }
+            }
+          }
+        }
+      }
+
+      // Hàm xóa các hàng đầy
+      function clearLines() {
+        let linesCleared = 0;
+        for (let r = BOARD_HEIGHT - 1; r >= 0; r--) {
+          // Kiểm tra xem hàng có đầy không (không có ô trống nào)
+          if (board[r].every((cell) => cell !== 0)) {
+            linesCleared++;
+            // Xóa hàng đó và thêm một hàng rỗng ở trên cùng
+            board.splice(r, 1);
+            board.unshift(Array(BOARD_WIDTH).fill(0));
+          }
+        }
+        if (linesCleared > 0) {
+          score += linesCleared * 100; // Cộng điểm
+          scoreDisplay.textContent = score;
+          // Tăng tốc độ game một chút
+          if (gameSpeed > 100) {
+            // Không quá nhanh
+            gameSpeed -= 20 * linesCleared;
+            clearInterval(gameInterval); // Xóa interval cũ
+            gameInterval = setInterval(gameLoop, gameSpeed); // Tạo interval mới với tốc độ mới
+          }
+        }
+      }
+
+      // Hàm xoay khối
+      function rotatePiece() {
+        const originalShape = currentPiece.shape;
+        const newShape = [];
+        const rows = originalShape.length;
+        const cols = originalShape[0].length;
+
+        // Chuyển hàng thành cột và đảo ngược thứ tự các cột
+        for (let c = 0; c < cols; c++) {
+          newShape[c] = [];
+          for (let r = rows - 1; r >= 0; r--) {
+            newShape[c].push(originalShape[r][c]);
+          }
+        }
+
+        // Kiểm tra xem xoay có hợp lệ không
+        if (isValidMove(currentPiece.x, currentPiece.y, newShape)) {
+          currentPiece.shape = newShape;
+        }
+        // Nếu không hợp lệ, thử di chuyển sang một bên (kick wall)
+        else {
+          // Thử di chuyển sang phải
+          if (isValidMove(currentPiece.x + 1, currentPiece.y, newShape)) {
+            currentPiece.x++;
+            currentPiece.shape = newShape;
+          }
+          // Thử di chuyển sang trái
+          else if (isValidMove(currentPiece.x - 1, currentPiece.y, newShape)) {
+            currentPiece.x--;
+            currentPiece.shape = newShape;
+          }
+          // Có thể thêm logic kick wall phức tạp hơn cho các trường hợp khác
+        }
+      }
+
+      // Hàm vẽ lên canvas
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height); // Xóa toàn bộ canvas
+
+        // Vẽ bảng chơi
+        for (let r = 0; r < BOARD_HEIGHT; r++) {
+          for (let c = 0; c < BOARD_WIDTH; c++) {
+            if (board[r][c] !== 0) {
+              ctx.fillStyle = board[r][c]; // Màu của khối đã xếp
+              ctx.fillRect(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+              ctx.strokeStyle = "#333"; // Viền cho các ô đã xếp
+              ctx.strokeRect(
+                c * TILE_SIZE,
+                r * TILE_SIZE,
+                TILE_SIZE,
+                TILE_SIZE
+              );
+            }
+          }
+        }
+
+        // Vẽ khối đang rơi
+        if (currentPiece) {
+          for (let r = 0; r < currentPiece.shape.length; r++) {
+            for (let c = 0; c < currentPiece.shape[r].length; c++) {
+              if (currentPiece.shape[r][c] === 1) {
+                ctx.fillStyle = currentPiece.color;
+                ctx.fillRect(
+                  (currentPiece.x + c) * TILE_SIZE,
+                  (currentPiece.y + r) * TILE_SIZE,
+                  TILE_SIZE,
+                  TILE_SIZE
+                );
+                ctx.strokeStyle = "#111"; // Viền cho khối đang rơi
+                ctx.strokeRect(
+                  (currentPiece.x + c) * TILE_SIZE,
+                  (currentPiece.y + r) * TILE_SIZE,
+                  TILE_SIZE,
+                  TILE_SIZE
+                );
+              }
+            }
+          }
+        }
+      }
+
+      // Xử lý đầu vào bàn phím
+      document.addEventListener("keydown", (e) => {
+        if (gameOver) return;
+
+        switch (e.key) {
+          case "ArrowLeft":
+            if (
+              isValidMove(
+                currentPiece.x - 1,
+                currentPiece.y,
+                currentPiece.shape
+              )
+            ) {
+              currentPiece.x--;
+            }
+            break;
+          case "ArrowRight":
+            if (
+              isValidMove(
+                currentPiece.x + 1,
+                currentPiece.y,
+                currentPiece.shape
+              )
+            ) {
+              currentPiece.x++;
+            }
+            break;
+          case "ArrowUp": // Xoay
+            rotatePiece();
+            break;
+          case "ArrowDown": // Hạ nhanh
+            // Rơi xuống cho đến khi va chạm
+            while (
+              isValidMove(
+                currentPiece.x,
+                currentPiece.y + 1,
+                currentPiece.shape
+              )
+            ) {
+              currentPiece.y++;
+            }
+            // Sau khi hạ nhanh, xử lý ngay như thể khối đã rơi
+            mergePiece();
+            clearLines();
+            createNewPiece();
+            break;
+        }
+        draw(); // Vẽ lại sau mỗi lần di chuyển
+      });
+
+      // Hàm chính của game loop
+      function gameLoop() {
+        if (gameOver) {
+          clearInterval(gameInterval); // Dừng vòng lặp khi game over
+          return;
+        }
+
+        // Cố gắng di chuyển khối xuống
+        if (
+          isValidMove(currentPiece.x, currentPiece.y + 1, currentPiece.shape)
+        ) {
+          currentPiece.y++;
+        } else {
+          // Nếu không thể di chuyển xuống nữa, hợp nhất khối và tạo khối mới
+          mergePiece();
+          clearLines(); // Kiểm tra và xóa hàng đầy
+          createNewPiece();
+        }
+        draw(); // Vẽ lại trạng thái mới
+      }
+
+      // --- Khởi tạo và Bắt đầu game ---
+      initializeBoard();
+      createNewPiece();
+      let gameInterval = setInterval(gameLoop, gameSpeed); // Bắt đầu vòng lặp game
+    </script>
+  </body>
+</html>
